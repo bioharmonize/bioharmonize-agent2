@@ -1,0 +1,10 @@
+{
+  "name": "bioharmonize-agent2",
+  "version": "1.0.0",
+  "description": "BioHarmonize Agent 2: Derivative Generator (Vercel cron)",
+  "type": "module",
+  "scripts": {
+    "test": "node test-local.js"
+  },
+  "dependencies": {}
+}
