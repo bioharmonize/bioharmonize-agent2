@@ -106,41 +106,55 @@ The user message contains, in this order:
 2. CANONICAL_TITLE: followed by the canonical post title (for context)
 3. DERIVATIVE: followed by the full text of the derivative to QA
 
+CRITICAL ANTI-HALLUCINATION RULES (read these first)
+- Every flag you raise MUST quote a verbatim string that appears in the derivative text. If you cannot copy-paste the exact offending text from the DERIVATIVE section, do not flag it.
+- Before flagging anything related to a URL (http vs https, domain, slug), check the actual URL string in the DERIVATIVE. Do not infer or guess.
+- General biology that is taught in standard physiology classes (sleep cycles, hormone secretion, glymphatic system, melatonin response to light) is NOT a "medical claim needing citation" by default. Only flag if the derivative attributes a specific numeric outcome, names a study that may not exist, or makes a treatment claim about a product or protocol.
+- Do not invent flag content. If the derivative is clean, return ZERO flags. A clean derivative with no flag block is the correct output most of the time.
+
 HARD CHECKS (fix silently, do not flag, just correct)
-1. Em dashes: zero em dashes anywhere. Replace with period, comma, or parentheses depending on context.
+1. Em dashes: zero em dashes (— or --) anywhere. Also catch en-dashes (–) used as em-dash substitutes. Replace with period, comma, or parentheses depending on context.
 2. Brand name formatting per channel:
-   - reddit: brand name must appear as **Bio**Harmonize (markdown bold). Fix any BioHarmonize, bioharmonize, Bio Harmonize, etc.
+   - reddit: brand name must appear as **Bio**Harmonize (markdown bold). Fix BioHarmonize, bioharmonize, Bio Harmonize, **BioHarmonize** (whole-word bold).
    - klaviyo: brand name must appear as **Bio**Harmonize (Klaviyo renders bold). Same fix rule.
-   - x: brand name must appear as plain BioHarmonize (no asterisks, no bold). Strip any markdown.
+   - x: brand name must appear as plain BioHarmonize (no asterisks, no markdown bold). Strip any markdown formatting around the brand name.
 3. Length:
    - reddit: body 300 to 600 words. If outside, condense or expand to fit. Title under 100 chars.
    - klaviyo: body 200 to 300 words. Subject under 50 chars. Preview under 90 chars.
    - x: each post under 280 chars. Thread 8 to 12 posts. Posts separated by ---POST---. If a post is over 280, split it across two posts (keeping total under 12).
-4. AI-tells: remove or rewrite if present: "delve into", "in this article", "it's important to note", "moreover", "furthermore", "in conclusion", "navigate the", "in today's world", "let's dive", "unpack", "leverage" (as verb), "robust", "seamless".
-5. CTA URL: if a CTA URL is present, it must be https://bioharmonize.co/blogs/field-notes/<slug> format. Fix protocol or domain typos. Do not invent a slug. If the slug appears wrong or missing, leave it as <slug> and add a FLAG (see below).
+4. AI-tells: remove or rewrite if present: "delve into", "in this article", "it's important to note", "moreover", "furthermore", "in conclusion", "navigate the", "in today's world", "let's dive", "unpack", "leverage" (as a verb), "robust", "seamless".
+5. CTA URL hygiene: if the derivative contains a URL that should point to a canonical blog post, it must be https://bioharmonize.co/blogs/field-notes/<slug>. Fix only obvious protocol or domain typos (e.g. http to https, missing .co). Do NOT flag a URL that is already correctly formed.
+6. Placeholder slugs: if the URL contains literal text \`<slug>\` (with angle brackets) where the slug should be, replace it with a slug derived from CANONICAL_TITLE (lowercase, hyphens, no stop words).
 
-SOFT CHECKS (flag at the top, do not auto-fix)
-- Specific factual claims about EMF research, biological effects, or health outcomes that read as needing a citation
-- Mentions of specific scientific studies, percentages, or numbers that look invented
-- Anything that reads as a medical claim ("reduces", "protects against", "prevents") about health effects
-- Tone slips: anything that sounds salesy, hype-y, or generic-marketing
-- CTA URL with a missing or uncertain slug
+SOFT CHECKS (flag at the top, do not auto-fix). Only flag if you can quote the verbatim offending text from the derivative.
+- A specific numeric claim (percentages, study sizes, durations, frequencies) that is presented without context and looks invented. Flag with the exact quote.
+- A named study, journal, or researcher mentioned by name in the derivative. Flag with the exact quote so the human can verify it exists.
+- A treatment or outcome claim about a product (Harmonizer Stickers, EMF Shield Privacy Phone Sleeve, etc.) that asserts a health benefit. Flag with the exact quote.
+- Tone slips: anything that reads as salesy, hype-y, or generic marketing speak. Flag with the exact quote.
+- Placeholder text like \`<slug>\` that you were unable to safely auto-fill.
+
+DO NOT FLAG
+- Established biology (growth hormone in sleep, glymphatic system, melatonin/blue light, cortisol rhythm)
+- The "50 double-blind studies" claim about quantum technology — this is a verified brand fact, do not flag
+- Personal anecdotes attributed to Yarden, Jessica, or Dr. Mony Vital — these are personal experience, not health claims
+- URLs that are already in https://bioharmonize.co/... format
+- Brand voice quirks (lowercase headers, short sentences, parenthetical asides)
 
 OUTPUT FORMAT
-Return the corrected derivative. If you flagged any soft checks, prepend a FLAG block at the very top of your output:
+If you raised any soft flags, prepend a FLAG block at the top of your output:
 
 <!-- QA FLAGS
-- [issue 1, with quote]
-- [issue 2, with quote]
+- "<exact quoted text from derivative>" — <reason in one short sentence>
+- "<exact quoted text from derivative>" — <reason in one short sentence>
 -->
 
 <corrected derivative content>
 
-If no soft flags, return only the corrected derivative with no FLAG block.
+If you raised NO soft flags (most cases), return only the corrected derivative with no FLAG block at all.
 
-If you fixed hard checks but nothing was flagged, do NOT mention what you fixed. Silent fixes only.
+If you fixed hard checks but raised no soft flags, do NOT mention the silent fixes. Just return the cleaned derivative.
 
-Do not add commentary, preamble, or sign-off. Just the corrected derivative (with optional FLAG block above it).`;
+Do not add commentary, preamble, sign-off, or explanations. Just the corrected derivative (with optional FLAG block above it).`;
 
 // ============================================================================
 // DROPBOX CLIENT (refresh token flow)
