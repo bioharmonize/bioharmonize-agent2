@@ -275,6 +275,47 @@ async function callClaude({ model, systemPrompt, userMessage, maxTokens = 2000 }
 
 const CANONICAL_FOLDER = "/BioHarmonize/01_Canonical_Approved";
 const REVIEW_FOLDER = "/BioHarmonize/02_Derivatives_Review";
+const STATUS_FOLDER = "/BioHarmonize/_status";
+
+async function ensureFolder(path) {
+  const res = await fetch(`${DROPBOX_API}/files/create_folder_v2`, {
+    method: "POST",
+    headers: { ...(await dropboxAuthHeader()), "Content-Type": "application/json" },
+    body: JSON.stringify({ path, autorename: false }),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    if (!/path\/conflict\/folder/.test(txt)) console.warn(`ensureFolder ${path}:`, txt.slice(0, 200));
+  }
+}
+
+async function uploadJsonFile(path, obj) {
+  const res = await fetch(`${DROPBOX_CONTENT}/files/upload`, {
+    method: "POST",
+    headers: {
+      ...(await dropboxAuthHeader()),
+      "Content-Type": "application/octet-stream",
+      "Dropbox-API-Arg": JSON.stringify({
+        path, mode: "overwrite", autorename: false, mute: true, strict_conflict: false,
+      }),
+    },
+    body: JSON.stringify(obj, null, 2),
+  });
+  if (!res.ok) console.warn(`uploadJsonFile ${path}:`, (await res.text()).slice(0, 200));
+}
+
+async function writeStatus(payload) {
+  try {
+    await ensureFolder(STATUS_FOLDER);
+    await uploadJsonFile(`${STATUS_FOLDER}/agent_2_last_run.json`, {
+      agent: "agent_2_derivatives",
+      ...payload,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.warn("writeStatus failed:", err.message);
+  }
+}
 
 const CHANNELS = [
   { name: "reddit", systemPrompt: REDDIT_PROMPT },
@@ -343,25 +384,22 @@ export default async function handler(req, res) {
     );
 
     if (mdFiles.length === 0) {
-      return res.status(200).json({
-        ok: true, message: "No .md files in canonical folder",
-        timestamp: new Date().toISOString(),
-      });
+      const payload = { ok: true, message: "No .md files in canonical folder", canonicalCount: 0 };
+      await writeStatus(payload);
+      return res.status(200).json({ ...payload, timestamp: new Date().toISOString() });
     }
 
     const results = [];
     for (const file of mdFiles) {
       results.push(await processCanonical(file));
     }
-    return res.status(200).json({
-      ok: true, processed: results.length, results,
-      timestamp: new Date().toISOString(),
-    });
+    const payload = { ok: true, processed: results.length, canonicalCount: mdFiles.length, results };
+    await writeStatus(payload);
+    return res.status(200).json({ ...payload, timestamp: new Date().toISOString() });
   } catch (err) {
     console.error("Cron failed:", err);
-    return res.status(500).json({
-      ok: false, error: err.message, stack: err.stack,
-      timestamp: new Date().toISOString(),
-    });
+    const payload = { ok: false, error: err.message, stack: err.stack };
+    await writeStatus(payload).catch(() => {});
+    return res.status(500).json({ ...payload, timestamp: new Date().toISOString() });
   }
 }
