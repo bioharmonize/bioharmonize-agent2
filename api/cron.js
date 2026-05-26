@@ -276,6 +276,8 @@ async function callClaude({ model, systemPrompt, userMessage, maxTokens = 2000 }
 const CANONICAL_FOLDER = "/BioHarmonize/01_Canonical_Approved";
 const REVIEW_FOLDER = "/BioHarmonize/02_Derivatives_Review";
 const STATUS_FOLDER = "/BioHarmonize/_status";
+const ALERTS_FOLDER = "/BioHarmonize/_alerts";
+const AGENT_NAME = "agent_2_derivatives";
 
 async function ensureFolder(path) {
   const res = await fetch(`${DROPBOX_API}/files/create_folder_v2`, {
@@ -308,12 +310,48 @@ async function writeStatus(payload) {
   try {
     await ensureFolder(STATUS_FOLDER);
     await uploadJsonFile(`${STATUS_FOLDER}/agent_2_last_run.json`, {
-      agent: "agent_2_derivatives",
+      agent: AGENT_NAME,
       ...payload,
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
     console.warn("writeStatus failed:", err.message);
+  }
+}
+
+async function sendAlert({ severity = "error", summary, detail, context = {} }) {
+  const ts = new Date().toISOString();
+  const safeTs = ts.replace(/[:.]/g, "-");
+  const alert = { ts, agent: AGENT_NAME, severity, summary, detail: String(detail || "").slice(0, 8000), context };
+  try {
+    await ensureFolder(ALERTS_FOLDER);
+    await uploadJsonFile(`${ALERTS_FOLDER}/${safeTs}_${AGENT_NAME}.json`, alert);
+  } catch (err) {
+    console.warn("sendAlert: dropbox write failed:", err.message);
+  }
+  if (!process.env.KLAVIYO_API_KEY || !process.env.ALERT_EMAIL) return;
+  try {
+    await fetch("https://a.klaviyo.com/api/events/", {
+      method: "POST",
+      headers: {
+        Authorization: `Klaviyo-API-Key ${process.env.KLAVIYO_API_KEY}`,
+        "Content-Type": "application/json",
+        accept: "application/json",
+        revision: "2024-10-15",
+      },
+      body: JSON.stringify({
+        data: {
+          type: "event",
+          attributes: {
+            properties: { agent: AGENT_NAME, severity, summary, detail: alert.detail, ...context },
+            metric: { data: { type: "metric", attributes: { name: "BioHarmonize Pipeline Alert" } } },
+            profile: { data: { type: "profile", attributes: { email: process.env.ALERT_EMAIL } } },
+          },
+        },
+      }),
+    });
+  } catch (err) {
+    console.warn("sendAlert: klaviyo fire failed:", err.message);
   }
 }
 
@@ -395,11 +433,31 @@ export default async function handler(req, res) {
     }
     const payload = { ok: true, processed: results.length, canonicalCount: mdFiles.length, results };
     await writeStatus(payload);
+
+    // Alert on per-channel generation failures (Claude API errors, QA failures, etc.)
+    for (const r of results) {
+      if (!r?.results) continue;
+      for (const cr of r.results) {
+        if (cr.success === false) {
+          await sendAlert({
+            severity: "error",
+            summary: `Agent 2: ${cr.channel} derivative generation failed for ${r.filename}`,
+            detail: cr.error || JSON.stringify(cr),
+            context: { file: r.filename, channel: cr.channel },
+          });
+        }
+      }
+    }
     return res.status(200).json({ ...payload, timestamp: new Date().toISOString() });
   } catch (err) {
     console.error("Cron failed:", err);
     const payload = { ok: false, error: err.message, stack: err.stack };
     await writeStatus(payload).catch(() => {});
+    await sendAlert({
+      severity: "error",
+      summary: `Agent 2 crashed (${err.message?.slice(0, 80) || "unknown"})`,
+      detail: `${err.message}\n\n${err.stack}`,
+    }).catch(() => {});
     return res.status(500).json({ ...payload, timestamp: new Date().toISOString() });
   }
 }
